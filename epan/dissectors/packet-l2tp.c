@@ -325,6 +325,8 @@ static const enum_val_t l2tpv3_l2_specifics[] = {
     {NULL, NULL, 0}
 };
 
+static gint l2tpv3_hdlc_ericsson = -1;
+
 static gint l2tpv3_cookie = -1;
 static gint l2tpv3_l2_specific = -1;
 
@@ -1371,7 +1373,11 @@ static l2tpv3_session_t *store_pw_type(l2tpv3_session_t *_session,
         case 0x0005:
             result = L2TPv3_PROTOCOL_ETH; break;
         case 0x0006:
-            result = L2TPv3_PROTOCOL_CHDLC; break;
+            if (l2tpv3_hdlc_ericsson)
+                    result = L2TPv3_PROTOCOL_ERICSSON;
+            else
+                    result = L2TPv3_PROTOCOL_CHDLC;
+            break;
         case 0x0002:
             result = L2TPv3_PROTOCOL_AAL5; break;
         case 0x0001:
@@ -3763,6 +3769,12 @@ proto_register_l2tp(void)
                                    &l2tpv3_l2_specific,
                                    l2tpv3_l2_specifics,
                                    FALSE);
+
+    prefs_register_bool_preference(l2tp_module,
+                                   "hdlc_ericsson",
+                                   "Ericsson HDLC",
+                                   "Use Ericsson HDLC Flavor",
+                                   &l2tpv3_hdlc_ericsson);
 
     prefs_register_obsolete_preference(l2tp_module, "protocol");
 
