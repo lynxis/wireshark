@@ -306,7 +306,6 @@ static const enum_val_t l2tpv3_cookies[] = {
 };
 
 #define L2TPv3_COOKIE_DEFAULT       0
-#define L2TPv3_PROTOCOL_DEFAULT     L2TPv3_PROTOCOL_CHDLC
 
 #define L2TPv3_L2_SPECIFIC_NONE         0
 #define L2TPv3_L2_SPECIFIC_DEFAULT      1
@@ -325,7 +324,22 @@ static const enum_val_t l2tpv3_l2_specifics[] = {
     {NULL, NULL, 0}
 };
 
+static const enum_val_t pseudowire_enumvals[] = {
+    {"ETH",     "Ethernet",             L2TPv3_PROTOCOL_ETH},
+    {"CHDLC",   "Cisco HDLC",           L2TPv3_PROTOCOL_CHDLC},
+    {"FR",      "Frame Relay",          L2TPv3_PROTOCOL_FR},
+    {"PPP",     "PPP",                  L2TPv3_PROTOCOL_PPP},
+    {"IP",      "Internet Protocol",    L2TPv3_PROTOCOL_IP},
+    {"MPLS",    "Multi Protocol Label Switching", L2TPv3_PROTOCOL_MPLS},
+    {"AAL5",    "ATM Adaptation Layer 5", L2TPv3_PROTOCOL_AAL5},
+    {"LAPD",    "Link Access Protocol D", L2TPv3_PROTOCOL_LAPD},
+    {"DMPT",    "DOCSIS DMPT",          L2TPv3_PROTOCOL_DOCSIS_DMPT},
+    {"EHDLC",   "Ericsson HDLC/BP",     L2TPv3_PROTOCOL_ERICSSON},
+    {NULL, NULL, 0}
+};
+
 static gint l2tpv3_hdlc_ericsson = -1;
+static gint l2tpv3_default_pw = L2TPv3_PROTOCOL_CHDLC;
 
 static gint l2tpv3_cookie = -1;
 static gint l2tpv3_l2_specific = -1;
@@ -2572,7 +2586,7 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         l2_spec = L2TPv3_L2_SPECIFIC_NONE;
 
     if (pw_type == -1)
-        pw_type = L2TPv3_PROTOCOL_DEFAULT;
+        pw_type = l2tpv3_default_pw;
 
     if (cookie_len == -1)
         cookie_len = L2TPv3_COOKIE_DEFAULT;
@@ -3775,6 +3789,11 @@ proto_register_l2tp(void)
                                    "Ericsson HDLC",
                                    "Use Ericsson HDLC Flavor",
                                    &l2tpv3_hdlc_ericsson);
+
+    prefs_register_enum_preference(l2tp_module, "default_pw",
+                                   "Default Pseudowire",
+                                   "Which pseudowire to assume in case session setup is not part of capture",
+                                   &l2tpv3_default_pw, pseudowire_enumvals, TRUE);
 
     prefs_register_obsolete_preference(l2tp_module, "protocol");
 
