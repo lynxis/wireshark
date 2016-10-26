@@ -48,6 +48,7 @@ void proto_reg_handoff_gsm_rlcmac(void);
 
 static dissector_handle_t lte_rrc_dl_dcch_handle = NULL;
 static dissector_handle_t rrc_irat_ho_to_utran_cmd_handle = NULL;
+static dissector_handle_t llc_handle = NULL;
 
 /* private typedefs */
 typedef struct
@@ -8520,7 +8521,7 @@ static guint8 dissect_gprs_data_segments(tvbuff_t *tvb, packet_info *pinfo, prot
                                  "data segment: LI[%d]=%d indicates: (Last segment of) LLC frame (%d octets)",
                                  i, li, li);
         data_tvb = tvb_new_subset_length(tvb, octet_offset, li);
-        call_data_dissector(data_tvb, pinfo, subtree);
+        call_dissector(llc_handle, data_tvb, pinfo, subtree);
         octet_offset += li;
         break;
     }
@@ -8539,7 +8540,7 @@ static guint8 dissect_gprs_data_segments(tvbuff_t *tvb, packet_info *pinfo, prot
       subtree = proto_tree_add_subtree(tree, tvb, octet_offset, octet_length - octet_offset, ett_data_segments, NULL, "Padding Octets");
     }
     data_tvb = tvb_new_subset_length(tvb, octet_offset, octet_length - octet_offset);
-    call_data_dissector(data_tvb, pinfo, subtree);
+    call_dissector(llc_handle, data_tvb, pinfo, subtree);
     octet_offset = octet_length;
   }
   return (octet_offset - initial_offset);
@@ -8632,7 +8633,7 @@ static guint16 dissect_egprs_data_segments(tvbuff_t *tvb, packet_info *pinfo, pr
                                  "data segment: LI[%d]=%d indicates: (Last segment of) LLC frame (%d octets)",
                                  i, li, li);
         data_tvb = tvb_new_subset_length(tvb, octet_offset, li);
-        call_data_dissector(data_tvb, pinfo, subtree);
+        call_dissector(llc_handle, data_tvb, pinfo, subtree);
         octet_offset += li;
         break;
     }
@@ -8644,7 +8645,7 @@ static guint16 dissect_egprs_data_segments(tvbuff_t *tvb, packet_info *pinfo, pr
     subtree = proto_tree_add_subtree(tree, tvb, octet_offset, octet_length - octet_offset, ett_data_segments, NULL,
                              "data segment: LI not present: \n The Upper Layer PDU in the current RLC data block either fills the current RLC data block precisely \nor continues in the following in-sequence RLC data block");
     data_tvb = tvb_new_subset_length(tvb, octet_offset, octet_length - octet_offset);
-    call_data_dissector(data_tvb, pinfo, subtree);
+    call_dissector(llc_handle, data_tvb, pinfo, subtree);
     octet_offset = octet_length;
   }
   return (octet_offset - initial_offset);
@@ -18467,6 +18468,7 @@ void proto_reg_handoff_gsm_rlcmac(void)
 {
   lte_rrc_dl_dcch_handle = find_dissector("lte_rrc.dl_dcch");
   rrc_irat_ho_to_utran_cmd_handle = find_dissector("rrc.irat.ho_to_utran_cmd");
+  llc_handle = find_dissector("llcgprs");
 }
 
 /*
