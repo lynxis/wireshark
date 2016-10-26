@@ -3,6 +3,7 @@
  *
  * (C) 2008-2013 by Harald Welte <laforge@gnumonks.org>
  * (C) 2011 by Holger Hans Peter Freyther
+ * (C) 2016 by Sysmocom s.f.m.c. GmbH, Berlin
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -34,6 +35,7 @@
 
 #include <epan/packet.h>
 #include <epan/conversation.h>
+#include <epan/dissectors/packet-gsm_rlcmac.h>
 
 #include "packet-gsmtap.h"
 #include "packet-lapdm.h"
@@ -453,6 +455,137 @@ handle_tetra(int channel _U_, tvbuff_t *payload_tvb _U_, packet_info *pinfo _U_,
 	tetra_dissect_pdu(tetra_chan, TETRA_DOWNLINK, payload_tvb, tree, pinfo);
 }
 
+static void
+setup_rlc_mac_priv(RlcMacPrivateData_t *rm, gsize len, gboolean is_uplink,
+	gsize *n_calls, gsize *data_block_bits, gsize *data_block_offsets)
+{
+	gsize nc, dbl = 0, dbo[2] = {0,0};
+	RLCMAC_block_format_t frm;
+	gsize mcs = 0;
+
+	memset(rm, 0, sizeof(*rm));
+	rm->magic = GSM_RLC_MAC_MAGIC_NUMBER;
+
+	switch (len)
+	{
+	default:
+		if (len <= 5 && is_uplink) {
+			/* Assume random access burst */
+			frm = RLCMAC_PRACH;
+			nc = 1;
+			break;
+		}
+		/* fall through */
+	case 23:  frm = RLCMAC_CS1; nc = 1; dbl = 20; break;
+	case 34:  frm = RLCMAC_CS2; nc = 1; dbl = 30; break;
+	case 40:  frm = RLCMAC_CS3; nc = 1; dbl = 36; break;
+	case 54:  frm = RLCMAC_CS4; nc = 1; dbl = 50; break;
+	case 27:  frm = RLCMAC_HDR_TYPE_3; mcs = 1; nc = 2; dbl = 22; break;
+	case 33:  frm = RLCMAC_HDR_TYPE_3; mcs = 2; nc = 2; dbl = 28; break;
+	case 42:  frm = RLCMAC_HDR_TYPE_3; mcs = 3; nc = 2; dbl = 37; break;
+	case 49:  frm = RLCMAC_HDR_TYPE_3; mcs = 4; nc = 2; dbl = 44; break;
+	case 60:
+	case 61:  frm = RLCMAC_HDR_TYPE_2; mcs = 5; nc = 2; dbl = 56; break;
+	case 78:
+	case 79:  frm = RLCMAC_HDR_TYPE_2; mcs = 6; nc = 2; dbl = 74; break;
+	case 118:
+	case 119: frm = RLCMAC_HDR_TYPE_1; mcs = 7; nc = 3; dbl = 56; break;
+	case 142:
+	case 143: frm = RLCMAC_HDR_TYPE_1; mcs = 8; nc = 3; dbl = 68; break;
+	case 154:
+	case 155: frm = RLCMAC_HDR_TYPE_1; mcs = 9; nc = 3; dbl = 74; break;
+	}
+
+	switch (frm)
+	{
+	case RLCMAC_HDR_TYPE_1:
+		nc = 3;
+		dbo[0] = is_uplink ? 5*8 + 6 : 5*8 + 0;
+		dbo[1] = dbo[0] + dbl * 8 + 2;
+		break;
+	case RLCMAC_HDR_TYPE_2:
+		nc = 2;
+		dbo[0] = is_uplink ? 4*8 + 5 : 3*8 + 4;
+		break;
+	case RLCMAC_HDR_TYPE_3:
+		nc = 2;
+		dbo[0] = 3*8 + 7;
+		break;
+	default:
+		nc = 1;
+		break;
+
+	}
+
+	rm->block_format = frm;
+	rm->mcs = mcs;
+	*n_calls = nc;
+	*data_block_bits = dbl * 8 + 2;
+	data_block_offsets[0] = dbo[0];
+	data_block_offsets[1] = dbo[1];
+}
+
+static void clone_aligned_buffer_lsbf(gsize offset_bits, gsize length_bytes,
+	const guint8 *src, guint8 *buffer)
+{
+	gsize hdr_bytes;
+	gsize extra_bits;
+	gsize i;
+
+	guint8 c, last_c;
+	guint8 *dst;
+
+	hdr_bytes = offset_bits / 8;
+	extra_bits = offset_bits % 8;
+
+	if (extra_bits == 0) {
+		/* It is aligned already */
+		memmove(buffer, src + hdr_bytes, length_bytes);
+		return;
+	}
+
+	dst = buffer;
+	src = src + hdr_bytes;
+	last_c = *(src++);
+
+	for (i = 0; i < length_bytes; i++) {
+		c = src[i];
+		*(dst++) = (last_c >> extra_bits) | (c << (8 - extra_bits));
+		last_c = c;
+	}
+}
+
+static tvbuff_t *get_egprs_data_block(tvbuff_t *tvb, gsize offset_bits,
+	gsize length_bits, packet_info *pinfo)
+{
+	tvbuff_t *aligned_tvb;
+	const gsize initial_spare_bits = 6;
+	guint8 *aligned_buf;
+	gsize min_src_length_bytes = (offset_bits + length_bits + 7) / 8;
+	gsize length_bytes = (initial_spare_bits + length_bits + 7) / 8;
+
+	DISSECTOR_ASSERT(offset_bits >= initial_spare_bits);
+
+	tvb_ensure_bytes_exist(tvb, 0, min_src_length_bytes);
+
+	aligned_buf = (guint8 *) g_malloc(length_bytes);
+
+	/* Copy the data out of the tvb to an aligned buffer */
+	clone_aligned_buffer_lsbf(
+		offset_bits - initial_spare_bits, length_bytes,
+		tvb_get_ptr(tvb, 0, min_src_length_bytes),
+		aligned_buf);
+
+	/* clear spare bits and move block header bits to the right */
+	aligned_buf[0] = aligned_buf[0] >> initial_spare_bits;
+
+	aligned_tvb = tvb_new_child_real_data(tvb, aligned_buf,
+		length_bytes, length_bytes);
+	add_new_data_source(pinfo, aligned_tvb, "Aligned EGPRS data bits");
+
+	return aligned_tvb;
+}
+
 /* dissect a GSMTAP header and hand payload off to respective dissector */
 static int
 dissect_gsmtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
@@ -730,6 +863,43 @@ dissect_gsmtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 	case GSMTAP_SUB_LTE_NAS:
 		call_dissector(lte_nas_sub_handles[sub_handle_idx], payload_tvb,
 			       pinfo, tree);
+		break;
+	case GSMTAP_SUB_UM_RLC_MAC_UL:
+	case GSMTAP_SUB_UM_RLC_MAC_DL:
+		gsize num_calls;
+		gsize data_block_bits, data_block_offsets[2];
+		RlcMacPrivateData_t rlc_mac;
+		tvbuff_t *data_tvb;
+
+		setup_rlc_mac_priv(&rlc_mac,
+			tvb_reported_length(payload_tvb),
+			sub_handle == GSMTAP_SUB_UM_RLC_MAC_UL,
+			&num_calls, &data_block_bits, data_block_offsets);
+
+		if (sub_handles[sub_handle] == NULL)
+			return tvb_captured_length(tvb);
+
+		call_dissector_with_data(sub_handles[sub_handle], payload_tvb,
+			pinfo, tree, &rlc_mac);
+
+		/* We need a sub payload tvb which starts
+		 * with 6 0 bits, followed by the data block
+		 * bits. The offset depends on the header type,
+		 * the size depends on the MCS */
+		if (num_calls > 1) {
+			data_tvb = get_egprs_data_block(payload_tvb,
+				data_block_offsets[0], data_block_bits, pinfo);
+			rlc_mac.flags = GSM_RLC_MAC_EGPRS_BLOCK1;
+			call_dissector_with_data(sub_handles[sub_handle], data_tvb,
+				pinfo, tree, &rlc_mac);
+		}
+		if (num_calls > 2) {
+			data_tvb = get_egprs_data_block(payload_tvb,
+				data_block_offsets[1], data_block_bits, pinfo);
+			rlc_mac.flags = GSM_RLC_MAC_EGPRS_BLOCK2;
+			call_dissector_with_data(sub_handles[sub_handle], data_tvb,
+				pinfo, tree, &rlc_mac);
+		}
 		break;
 	default:
 		if (sub_handles[sub_handle] != NULL)
