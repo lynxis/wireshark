@@ -408,6 +408,33 @@ static const value_string rsl_msg_disc_vals[] = {
 #define RSL_IE_IPAC_RTP_MPLEX             0xfd
 #define RSL_IE_IPAC_RTP_MPLEX_ID          0xfe
 
+/* Vendor-specific definitions used in Ericsson RSL */
+#define RSL_MSG_ERIC_IMM_ASS_SENT         0x10
+#define RSL_MSG_ERIC_TRX_REP_CTRL         0x1d
+#define RSL_MSG_ERIC_TRX_REP_CTRL_ACK     0x1e
+#define RSL_MSG_ERIC_TRX_REPORT           0x1f
+
+#define RSL_IE_ERIC_INST_NUM              0x48
+#define RSL_IE_ERIC_PGSL_TIMERS           0x49
+#define RSL_IE_ERIC_REP_DL_FACCH          0x4a
+#define RSL_IE_ERIC_L2_HDR_TYPE           0xe0
+#define RSL_IE_ERIC_PWR_INFO              0xf0
+#define RSL_IE_ERIC_MOBILE_ID             0xf1
+#define RSL_IE_ERIC_BCCH_MAPPING          0xf2
+#define RSL_IE_ERIC_PACKET_PAGING_IND     0xf3
+#define RSL_IE_ERIC_COUNTER_CTRL          0xf4
+#define RSL_IE_ERIC_COUNTER_CTRL_ACK      0xf5
+#define RSL_IE_ERIC_COUNTER_REPORT        0xf6
+#define RSL_IE_ERIC_ICP_CONN              0xf7
+#define RSL_IE_ERIC_EMR_SUPPORT           0xf8
+#define RSL_IE_ERIC_EGPRS_REQ_REF         0xf9
+#define RSL_IE_ERIC_VGCSREL               0xfa
+#define RSL_IE_ERIC_NCH_REP_PERIOD        0xfb
+#define RSL_IE_ERIC_NY2                   0xfc
+#define RSL_IE_ERIC_T3115                 0xfd
+#define RSL_IE_ERIC_ACT_FLAG              0xfe
+#define RSL_IE_ERIC_FULL_NCH_INFO         0xff
+
 static const value_string rsl_msg_type_vals[] = {
       /*    0 0 0 0 - - - - Radio Link Layer Management messages: */
 /* 0x01 */ { RSL_MSG_TYPE_DATA_REQ,      "DATA REQuest" },                               /* 8.3.1 */
@@ -422,6 +449,7 @@ static const value_string rsl_msg_type_vals[] = {
 /* 0x0a */ {  RSL_MSG_UNIT_DATA_REQ,     "UNIT DATA REQuest" },                          /* 8.3.10 */
 /* 0x0b */ {  RSL_MSG_UNIT_DATA_IND,     "UNIT DATA INDication" },                       /* 8.3.11 */
     /* 0 0 0 1 - - - - Common Channel Management/TRX Management messages: */
+/* 0x10 */ {  0x10, "Immediate Assignment Sent" }, /* ericcson proprietor */
 /* 0x11 */ {  RSL_MSG_BCCH_INFO,         "BCCH INFOrmation" },                           /* 8.5.1 */
 /* 0x12 */ {  RSL_MSG_CCCH_LOAD_IND,     "CCCH LOAD INDication" },                       /* 8.5.2 */
 /* 0x13 */ {  RSL_MSG_CHANRQD,           "CHANnel ReQuireD" },                           /* 8.5.3 */
@@ -431,7 +459,8 @@ static const value_string rsl_msg_type_vals[] = {
 /* 0x17 */ {  RSL_MSG_SMS_BC_REQ,        "SMS BroadCast REQuest" },                      /* 8.5.7 */
 
 /* Encapsulating paging messages into a packet EP2192796 - proprietor Huawei */
-/* 0x18 */ {  RSL_MSG_TYPE_PAGING,       "PAGING Huawei extension" },
+/* 0x18 */ /* {  RSL_MSG_TYPE_PAGING,       "PAGING Huawei extension" }, also used by ericson*/
+/* 0x18 */ {  0x18, "RACH Load?" }, /* ericson */
 
 /* 0x19 */ {  RSL_MSG_RF_RES_IND,        "RF RESource INDication" },                     /* 8.6.1 */
 /* 0x1a */ {  RSL_MSG_SACCH_FILL,        "SACCH FILLing" },                              /* 8.6.2 */
@@ -495,7 +524,7 @@ static const value_string rsl_msg_type_vals[] = {
 /* 0x77 */ {  RSL_MSG_TYPE_IPAC_DLCX,           "ip.access DLCX" },
 /* 0x78 */ {  RSL_MSG_TYPE_IPAC_DLCX_ACK,       "ip.access DLCX ACK" },
 /* 0x79 */ {  RSL_MSG_TYPE_IPAC_DLCX_NACK,      "ip.access DLCX NACK" },
-/* 0x48 */ { 0,        NULL }
+/* end  */ { 0,        NULL }
 };
 static value_string_ext rsl_msg_type_vals_ext = VALUE_STRING_EXT_INIT(rsl_msg_type_vals);
 
@@ -645,6 +674,7 @@ static const value_string rsl_ie_type_vals[] = {
             Not used
 
     */
+/* FIXME: Distinguish between IPA and Ericsson definitions */
 /* 0xe0 */    { RSL_IE_IPAC_SRTP_CONFIG,"SRTP Configuration" },
 /* 0xe1 */    { RSL_IE_IPAC_PROXY_UDP,  "BSC Proxy UDP Port" },
 /* 0xe2 */    { RSL_IE_IPAC_BSCMPL_TOUT,"BSC Multiplex Timeout" },
@@ -3633,6 +3663,81 @@ dissct_rsl_ipaccess_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
 }
 
 static int
+dissct_rsl_ericsson_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
+{
+    //guint8  msg_type;
+    //conversation_t *conv;
+
+    //msg_type = tvb_get_guint8(tvb, offset) & 0x7f;
+    offset++;
+
+    /* parse TLV attributes */
+    while (tvb_reported_length_remaining(tvb, offset) > 0) {
+        guint8 tag;
+        unsigned int len, hlen;
+        const struct tlv_def *tdef;
+        proto_item *ti;
+        proto_tree *ie_tree;
+
+        tag = tvb_get_guint8(tvb, offset);
+        tdef = &rsl_att_tlvdef.def[tag];
+
+        switch (tdef->type) {
+        case TLV_TYPE_FIXED:
+            hlen = 1;
+            len = tdef->fixed_len;
+            break;
+        case TLV_TYPE_T:
+            hlen = 1;
+            len = 0;
+            break;
+        case TLV_TYPE_TV:
+            hlen = 1;
+            len = 1;
+            break;
+        case TLV_TYPE_TLV:
+            hlen = 2;
+            len = tvb_get_guint8(tvb, offset+1);
+            break;
+        case TLV_TYPE_TL16V:
+            hlen = 3;
+            len = tvb_get_guint8(tvb, offset+1) << 8 |
+                tvb_get_guint8(tvb, offset+2);
+            break;
+        case TLV_TYPE_UNKNOWN:
+        default:
+            return tvb_reported_length(tvb);
+        }
+
+        ti = proto_tree_add_item(tree, hf_rsl_ie_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+        ie_tree = proto_item_add_subtree(ti, ett_ie_local_port);
+        offset += hlen;
+
+        switch (tag) {
+        case RSL_IE_CH_NO:
+            dissect_rsl_ie_ch_no(tvb, pinfo, ie_tree, offset, FALSE);
+            break;
+        case RSL_IE_ERIC_INST_NUM:
+        case RSL_IE_ERIC_REP_DL_FACCH:
+        case RSL_IE_ERIC_PWR_INFO:
+        case RSL_IE_ERIC_MOBILE_ID:
+        case RSL_IE_ERIC_BCCH_MAPPING:
+        case RSL_IE_ERIC_PACKET_PAGING_IND:
+        case RSL_IE_ERIC_COUNTER_CTRL:
+        case RSL_IE_ERIC_COUNTER_CTRL_ACK:
+        case RSL_IE_ERIC_COUNTER_REPORT:
+        case RSL_IE_ERIC_ICP_CONN:
+        case RSL_IE_ERIC_EGPRS_REQ_REF:
+            break;
+        }
+        offset += len;
+    }
+
+    return offset;
+}
+
+
+static int
 dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
     guint8 msg_disc, msg_type, sys_info_type;
@@ -3647,6 +3752,18 @@ dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
         return offset;
     }
     offset++;
+
+    switch (msg_type) {
+    case RSL_MSG_ERIC_IMM_ASS_SENT:
+    case RSL_MSG_ERIC_TRX_REP_CTRL:
+    case RSL_MSG_ERIC_TRX_REP_CTRL_ACK:
+    case RSL_MSG_ERIC_TRX_REPORT:
+    case 0x18:
+        offset = dissct_rsl_ericsson_msg(tvb, pinfo, tree, offset-1);
+	return offset;
+    default:
+        break;
+    }
 
     switch (msg_type) {
 /* Radio Link Layer Management messages */
@@ -5101,6 +5218,29 @@ void proto_register_rsl(void)
     RSL_ATT_TLVDEF(RSL_IE_IPAC_RTP_PAYLOAD2, TLV_TYPE_TV,            0);
     RSL_ATT_TLVDEF(RSL_IE_IPAC_RTP_PAYLOAD,  TLV_TYPE_TV,            0);
     RSL_ATT_TLVDEF(RSL_IE_IPAC_RTP_CSD_FMT,  TLV_TYPE_TV,            0);
+
+#if 0
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_INST_NUM, TLV_TYPE_TV, 0);
+    /* RSL_IE_ERIC_PGSL_TIMERS? */
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_REP_DL_FACCH, TLV_TYPE_TV, 0);
+    /* RSL_IE_ERIC_L2_HDR_TYPE? */
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_PWR_INFO, TLV_TYPE_FIXED, 2);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_MOBILE_ID, TLV_TYPE_FIXED, 4);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_BCCH_MAPPING, TLV_TYPE_TV, 0);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_PACKET_PAGING_IND, TLV_TYPE_TV, 0);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_COUNTER_CTRL, TLV_TYPE_FIXED, 2);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_COUNTER_CTRL_ACK, TLV_TYPE_TV, 0);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_COUNTER_REPORT, TLV_TYPE_TLV, 0);
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_ICP_CONN, TLV_TYPE_TLV, 0);
+    /* RSL_IE_ERIC_EMR_SUPPORT? */
+    RSL_ATT_TLVDEF(RSL_IE_ERIC_EGPRS_REQ_REF, TLV_TYPE_FIXED, 4);
+    /* RSL_IE_ERIC_VGCSREL */
+    /* RSL_IE_ERIC_NCH_REP_PERIOD */
+    /* RSL_IE_ERIC_NY2 */
+    /* RSL_IE_ERIC_T3115 */
+    /* RSL_IE_ERIC_ACT_FLAG */
+    /* RSL_IE_ERIC_FULL_NCH_INFO */
+#endif
 
     /* Register the protocol name and description */
     proto_rsl = proto_register_protocol("Radio Signalling Link (RSL)", "RSL", "gsm_abis_rsl");
