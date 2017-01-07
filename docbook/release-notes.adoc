@@ -52,6 +52,7 @@ since version 3.0.0:
 [commaize]
 --
 evolved Common Public Radio Interface (eCPRI)
+Qualcomm DIAG
 --
 
 === Updated Protocol Support
