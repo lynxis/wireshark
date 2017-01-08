@@ -275,12 +275,14 @@ static value_string_ext qcdiag_subsys_ext = VALUE_STRING_EXT_INIT(qcdiag_subsys)
 static int
 dissect_qcdiag_subsys(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
+	proto_item *ti = proto_tree_get_parent(tree);
 	gint offset = 0;
 	guint subsys_id;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "QCDIAG-SUBSYS");
 
 	proto_tree_add_item_ret_uint(tree, hf_qcdiag_subsys_id, tvb, offset++, 1, ENC_NA, &subsys_id);
+	proto_item_append_text(ti, ", %s", val_to_str_ext(subsys_id, &qcdiag_subsys_ext, "Unknown (0x%02x)"));
 	proto_tree_add_item(tree, hf_qcdiag_subsys_cmd_code, tvb, offset, 2, ENC_LITTLE_ENDIAN);
 	offset += 2;
 
@@ -301,6 +303,7 @@ dissect_qcdiag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data 
 	diag_tree = proto_item_add_subtree(ti, ett_qcdiag);
 
 	proto_tree_add_item_ret_uint(diag_tree, hf_qcdiag_cmd, tvb, offset, 1, ENC_NA, &cmd);
+	proto_item_append_text(ti, ", %s", val_to_str_ext(cmd, &qcdiag_cmds_ext, "Unknown (0x%02x)"));
 
 	switch (cmd) {
 	case DIAG_SUBSYS_CMD_F:
