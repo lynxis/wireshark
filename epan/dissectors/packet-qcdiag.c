@@ -37,6 +37,10 @@ static int hf_qcdiag_cmd = -1;
 static int hf_qcdiag_subsys_id = -1;
 static int hf_qcdiag_subsys_cmd_code = -1;
 
+static int hf_qcdiag_logcfg_operation = -1;
+static int hf_qcdiag_logcfg_equip_id = -1;
+static int hf_qcdiag_logcfg_last_item = -1;
+
 static gint ett_qcdiag = -1;
 
 static const value_string qcdiag_cmds[] = {
@@ -272,6 +276,23 @@ static const value_string qcdiag_subsys[] = {
 
 static value_string_ext qcdiag_subsys_ext = VALUE_STRING_EXT_INIT(qcdiag_subsys);
 
+enum log_config_op {
+	LOG_CONFIG_DISABLE_OP			= 0,
+	LOG_CONFIG_RETRIEVE_ID_RANGES_OP	= 1,
+	LOG_CONFIG_RETRIEVE_VALID_MASK_OP	= 2,
+	LOG_CONFIG_SET_MASK_OP			= 3,
+	LOG_CONFIG_GET_LOGMASK_OP		= 4,
+};
+
+static const value_string logcfg_ops[] = {
+	{ LOG_CONFIG_DISABLE_OP,		"Disable" },
+	{ LOG_CONFIG_RETRIEVE_ID_RANGES_OP,	"Retrieve ID Ranges" },
+	{ LOG_CONFIG_RETRIEVE_VALID_MASK_OP,	"Retrieve Valid Mask" },
+	{ LOG_CONFIG_SET_MASK_OP,		"Set Mask" },
+	{ LOG_CONFIG_GET_LOGMASK_OP,		"Get Mask" },
+	{ 0, NULL }
+};
+
 static int
 dissect_qcdiag_subsys(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
@@ -287,6 +308,40 @@ dissect_qcdiag_subsys(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	offset += 2;
 
 	return dissector_try_uint(qcdiag_subsys_dissector_table, subsys_id, tvb, pinfo, tree);
+}
+
+static int
+dissect_qcdiag_logcfg_setmask(tvbuff_t *tvb, gint offset, packet_info *pinfo _U_, proto_tree *tree)
+{
+	proto_tree_add_item(tree, hf_qcdiag_logcfg_equip_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+	offset += 4;
+
+	proto_tree_add_item(tree, hf_qcdiag_logcfg_last_item, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+	offset += 4;
+
+	/* FIXME: Data */
+	return tvb_captured_length(tvb);
+}
+
+static int
+dissect_qcdiag_logcfg(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+{
+	gint offset = 1;
+	guint oper;
+
+	/* padding? */
+	offset += 3;
+
+	/* Operation */
+	proto_tree_add_item_ret_uint(tree, hf_qcdiag_logcfg_operation, tvb, offset, 4, ENC_LITTLE_ENDIAN, &oper);
+	offset += 4;
+
+	switch (oper) {
+	case LOG_CONFIG_SET_MASK_OP:
+		return dissect_qcdiag_logcfg_setmask(tvb, offset, pinfo, tree);
+	default:
+		return tvb_captured_length(tvb);
+	}
 }
 
 static int
@@ -306,9 +361,10 @@ dissect_qcdiag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data 
 	proto_item_append_text(ti, ", %s", val_to_str_ext(cmd, &qcdiag_cmds_ext, "Unknown (0x%02x)"));
 
 	switch (cmd) {
+	case DIAG_LOG_CONFIG_F:
+		return dissect_qcdiag_logcfg(tvb, pinfo, diag_tree);
 	case DIAG_SUBSYS_CMD_F:
-		dissect_qcdiag_subsys(tvb, pinfo, diag_tree);
-		break;
+		return dissect_qcdiag_subsys(tvb, pinfo, diag_tree);
 	default:
 		dissector_try_uint(qcdiag_dissector_table, cmd, tvb, pinfo, tree);
 		break;
@@ -327,6 +383,13 @@ proto_register_qcdiag(void)
 		  FT_UINT8, BASE_DEC|BASE_EXT_STRING, &qcdiag_subsys_ext, 0, NULL, HFILL } },
 		{ &hf_qcdiag_subsys_cmd_code, { "Subsystem Command Code", "qcdiag.subsys_cmd_code",
 		  FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL } },
+
+		{ &hf_qcdiag_logcfg_operation, { "Log Config Operation", "qcdiag.logcfg.operation",
+		  FT_UINT32, BASE_DEC, VALS(logcfg_ops), 0, NULL, HFILL } },
+		{ &hf_qcdiag_logcfg_equip_id, { "Log Config Equipment ID", "qcdiag.logcfg.equip_id",
+		  FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL } },
+		{ &hf_qcdiag_logcfg_last_item, { "Log config Last Item", "qcdiag.logcfg.last_item",
+		  FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL } },
 	};
 	static gint *ett[] = {
 		&ett_qcdiag
