@@ -180,10 +180,14 @@ dissect_qcdiag_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * d
 		break;
 	}
 
+	proto_item_append_text(ti, ", Subsys: %u, Mask: 0x%04x, %s:%u",
+				subsys_id, subsys_mask, file_name, line_nr);
+
 	if (str) {
 		col_append_str((pinfo)->cinfo, COL_INFO, str);
 		gi = proto_tree_add_string(diag_msg_tree, hf_qcdiag_msg_formatted_str, tvb, fmtstr_offset, strlen(fmtstr), str);
 		PROTO_ITEM_SET_GENERATED(gi);
+		proto_item_append_text(ti, " %s", str);
 	}
 
 	return tvb_captured_length(tvb);
