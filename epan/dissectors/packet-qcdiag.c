@@ -162,6 +162,8 @@ static const value_string qcdiag_cmds[] = {
 	{ 0, NULL }
 };
 
+static value_string_ext qcdiag_cmds_ext = VALUE_STRING_EXT_INIT(qcdiag_cmds);
+
 static const value_string qcdiag_subsys[] = {
 	{ DIAG_SUBSYS_OEM,		"OEM" },
 	{ DIAG_SUBSYS_ZREX,		"ZREX" },
@@ -268,6 +270,8 @@ static const value_string qcdiag_subsys[] = {
 	{ 0, NULL }
 };
 
+static value_string_ext qcdiag_subsys_ext = VALUE_STRING_EXT_INIT(qcdiag_subsys);
+
 static int
 dissect_qcdiag_subsys(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
@@ -315,9 +319,9 @@ proto_register_qcdiag(void)
 {
 	static hf_register_info hf[] = {
 		{ &hf_qcdiag_cmd, { "Command", "qcdiag.cmd",
-		  FT_UINT8, BASE_HEX, VALS(qcdiag_cmds), 0, NULL, HFILL } },
+		  FT_UINT8, BASE_HEX|BASE_EXT_STRING, &qcdiag_cmds_ext, 0, NULL, HFILL } },
 		{ &hf_qcdiag_subsys_id, { "Subsystem ID", "qcdiag.subsys_id",
-		  FT_UINT8, BASE_DEC, VALS(qcdiag_subsys), 0, NULL, HFILL } },
+		  FT_UINT8, BASE_DEC|BASE_EXT_STRING, &qcdiag_subsys_ext, 0, NULL, HFILL } },
 		{ &hf_qcdiag_subsys_cmd_code, { "Subsystem Command Code", "qcdiag.subsys_cmd_code",
 		  FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL } },
 	};
