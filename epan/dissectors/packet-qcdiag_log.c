@@ -45,6 +45,10 @@ static int hf_mac_msg_type = -1;
 static int hf_nas_msg_length = -1;
 static int hf_nas_direction = -1;
 
+static int hf_rrc_chan_type = -1;
+static int hf_rrc_rb_id = -1;
+static int hf_rrc_length = -1;
+
 static gint ett_qcdiag_log = -1;
 
 enum {
@@ -57,8 +61,13 @@ enum {
 	SUB_CBCH,
 	SUB_SIM,
 	/* UMTS */
-	SUB_UMTS_RLC_MAC,
-	SUB_UMTS_RRC,
+	SUB_RRC_DL_CCCH,
+	SUB_RRC_UL_CCCH,
+	SUB_RRC_DL_DCCH,
+	SUB_RRC_UL_DCCH,
+	SUB_RRC_BCCH_BCH,
+	SUB_RRC_BCCH_FACH,
+	SUB_RRC_PCCH,
 
 	SUB_MAX
 };
@@ -118,6 +127,77 @@ static const value_string mac_chan_types[] = {
 	{ DL_PACCH_CHANNEL,	"PACCH(Downlink)" },
 	{ 0, NULL }
 };
+
+enum diag_umts_rrc_chtype {
+	DIAG_UMTS_RRC_CHT_UL_CCCH	= 0,
+	DIAG_UMTS_RRC_CHT_UL_DCCH	= 1,
+	DIAG_UMTS_RRC_CHT_DL_CCCH	= 2,
+	DIAG_UMTS_RRC_CHT_DL_DCCH	= 3,
+	DIAG_UMTS_RRC_CHT_DL_BCCH_BCH	= 4,
+	DIAG_UMTS_RRC_CHT_DL_BCCH_FACH	= 5,
+	DIAG_UMTS_RRC_CHT_DL_PCCH	= 6,
+};
+
+static const value_string rrc_chan_types[] = {
+	{ DIAG_UMTS_RRC_CHT_UL_CCCH,	"CCCH(Uplink)" },
+	{ DIAG_UMTS_RRC_CHT_UL_DCCH,	"DCCH(Uplink)" },
+	{ DIAG_UMTS_RRC_CHT_DL_CCCH,	"CCCH(Downlink)" },
+	{ DIAG_UMTS_RRC_CHT_DL_DCCH,	"DCCH(Downlink)" },
+	{ DIAG_UMTS_RRC_CHT_DL_BCCH_BCH,"BCCH/BCH" },
+	{ DIAG_UMTS_RRC_CHT_DL_BCCH_FACH, "BCCH/FACH" },
+	{ DIAG_UMTS_RRC_CHT_DL_PCCH,	"PCCH" },
+	{ 0, NULL }
+};
+
+static int
+dissect_qcdiag_log_rrc(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tree *log_tree, proto_tree *tree)
+{
+	tvbuff_t *payload_tvb;
+	guint chan_type, rrc_length;
+	gint sub_handle;
+
+	proto_tree_add_item_ret_uint(log_tree, hf_rrc_chan_type, tvb, offset++, 1, ENC_NA, &chan_type);
+
+	proto_tree_add_item(log_tree, hf_rrc_rb_id, tvb, offset++, 1, ENC_NA);
+
+	proto_tree_add_item_ret_uint(log_tree, hf_rrc_length, tvb, offset, 2, ENC_LITTLE_ENDIAN, &rrc_length);
+	offset += 2;
+
+	/* Data: Raw RRC Message */
+	payload_tvb = tvb_new_subset_length(tvb, offset, rrc_length);
+
+	switch (chan_type) {
+	case DIAG_UMTS_RRC_CHT_UL_CCCH:
+		sub_handle = SUB_RRC_UL_CCCH;
+		break;
+	case DIAG_UMTS_RRC_CHT_DL_DCCH:
+		sub_handle = SUB_RRC_DL_DCCH;
+		break;
+	case DIAG_UMTS_RRC_CHT_UL_DCCH:
+		sub_handle = SUB_RRC_UL_DCCH;
+		break;
+	case DIAG_UMTS_RRC_CHT_DL_CCCH:
+		sub_handle = SUB_RRC_DL_CCCH;
+		break;
+	case DIAG_UMTS_RRC_CHT_DL_BCCH_BCH:
+		sub_handle = SUB_RRC_BCCH_BCH;
+		break;
+	case DIAG_UMTS_RRC_CHT_DL_BCCH_FACH:
+		sub_handle = SUB_RRC_BCCH_FACH;
+		break;
+	case DIAG_UMTS_RRC_CHT_DL_PCCH:
+		sub_handle = SUB_RRC_PCCH;
+		break;
+	default:
+		sub_handle = SUB_DATA;
+		break;
+	};
+
+	if (sub_handles[sub_handle])
+		call_dissector(sub_handles[sub_handle], payload_tvb, pinfo, tree);
+
+	return tvb_captured_length(tvb);
+}
 
 static int
 dissect_qcdiag_log_rr(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tree *log_tree, proto_tree *tree)
@@ -256,7 +336,7 @@ dissect_qcdiag_log(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * d
 	case 0x512f:	/* GSM RR signaling message */
 		return dissect_qcdiag_log_rr(tvb, offset, pinfo, diag_log_tree, tree);
 	case 0x412f:	/* 3G RRC */
-		break;
+		return dissect_qcdiag_log_rrc(tvb, offset, pinfo, diag_log_tree, tree);
 	case 0x5202:	/* LOG_GPRS_RLC_UL_STATS_C */
 		break;
 	case 0x520e:	/* LOG_GPRS_RLC_DL_RELEASE_IND_C */
@@ -314,6 +394,13 @@ proto_register_qcdiag_log(void)
 		  FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL } },
 		{ &hf_nas_direction, { "Direction", "qcdiag_log.nas.direction",
 		  FT_BOOLEAN, 8, TFS(&nas_direction_vals), 0x01, NULL, HFILL } },
+		/* RRC */
+		{ &hf_rrc_chan_type, { "RRC Channel Type", "qcdiag_log.rrc.chan_type",
+		  FT_UINT8, BASE_DEC, VALS(rrc_chan_types), 0, NULL, HFILL } },
+		{ &hf_rrc_rb_id, {"RRC RB ID", "qcdiag_log.rrc.rb_id",
+		  FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL } },
+		{ &hf_rrc_length, {"RRC Message Length", "qcdiag_log.rrc.msg_len",
+		  FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL } },
 	};
 	static gint *ett[] = {
 		&ett_qcdiag_log
@@ -341,6 +428,13 @@ proto_reg_handoff_qcdiag_log(void)
 	sub_handles[SUB_UM_SACCH] = find_dissector_add_dependency("gsm_a_sacch", proto_qcdiag_log);
 	sub_handles[SUB_UM_RLC_MAC_UL] = find_dissector_add_dependency("gsm_rlcmac_ul", proto_qcdiag_log);
 	sub_handles[SUB_UM_RLC_MAC_DL] = find_dissector_add_dependency("gsm_rlcmac_dl", proto_qcdiag_log);
+	sub_handles[SUB_RRC_DL_CCCH] = find_dissector_add_dependency("rrc.dl.ccch", proto_qcdiag_log);
+	sub_handles[SUB_RRC_UL_CCCH] = find_dissector_add_dependency("rrc.ul.ccch", proto_qcdiag_log);
+	sub_handles[SUB_RRC_DL_DCCH] = find_dissector_add_dependency("rrc.dl.dcch", proto_qcdiag_log);
+	sub_handles[SUB_RRC_UL_DCCH] = find_dissector_add_dependency("rrc.ul.dcch", proto_qcdiag_log);
+	sub_handles[SUB_RRC_BCCH_BCH] = find_dissector_add_dependency("rrc.bcch.bch", proto_qcdiag_log);
+	sub_handles[SUB_RRC_BCCH_FACH] = find_dissector_add_dependency("rrc.bcch.fach", proto_qcdiag_log);
+	sub_handles[SUB_RRC_PCCH] = find_dissector_add_dependency("rrc.pcch", proto_qcdiag_log);
 }
 
 /*
