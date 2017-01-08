@@ -36,6 +36,7 @@ static int hf_qcdiag_msg_line_nr = -1;
 static int hf_qcdiag_msg_subsys_id = -1;
 static int hf_qcdiag_msg_subsys_mask = -1;
 static int hf_qcdiag_msg_fmt_str = -1;
+static int hf_qcdiag_msg_formatted_str = -1;
 static int hf_qcdiag_msg_file_name = -1;
 static int hf_qcdiag_msg_argument = -1;
 
@@ -43,14 +44,37 @@ static gint ett_qcdiag_msg = -1;
 
 #define MAX_ARGS	16
 
+static void
+sanitize_fmtstr(guint8 *fmt)
+{
+	guint8 *cur;
+
+	/* replace all CR/LF to avoid having multi-line COL_INFO */
+	for (cur = fmt; cur < fmt + strlen(fmt); cur++) {
+		if (*cur == '\n' || *cur == '\r')
+			*cur = ';';
+	}
+
+	/* Replace all '%s' with '%p', as this simply doesn't work in a
+	 * remte-printf situation. We cannot access the address on the
+	 * target device.  People putting format strings into QCDIAG MSG
+	 * should know that, but pparently some times try anyway :/ */
+	for (cur = fmt; cur && (cur < fmt + strlen(fmt)); cur = strstr(fmt, "%s")) {
+		cur[1] = 'p';
+	}
+	/* FIXME: catch cases like '% s' or '%-20s' */
+}
+
 static int
 dissect_qcdiag_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
-	proto_item *ti;
+	proto_item *ti, *gi;
 	proto_tree *diag_msg_tree;
 	gint offset = 1; /* command already dissected by proto-qcdiag.c */
-	guint num_args, line_nr, subsys_id, subsys_mask, i;
-	const guint8 *fmtstr, *file_name;
+	guint num_args, line_nr, subsys_id, subsys_mask, i, fmtstr_offset;
+	const guint8 *file_name;
+	guint8 *fmtstr;
+	gchar *str = NULL;
 	guint args[MAX_ARGS];
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "QCDIAG-MSG");
@@ -82,8 +106,13 @@ dissect_qcdiag_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * d
 		offset += 4;
 	}
 
-	proto_tree_add_item_ret_string(diag_msg_tree, hf_qcdiag_msg_fmt_str, tvb, offset, -1, ENC_ASCII, wmem_packet_scope(), &fmtstr);
+	/* we cannot use _ret_string() here, as we need an editable
+	 * (non-const) version of the string to sanitize it */
+	proto_tree_add_item(diag_msg_tree, hf_qcdiag_msg_fmt_str, tvb, offset, -1, ENC_ASCII|ENC_NA);
+	fmtstr = tvb_get_stringzpad(wmem_packet_scope(), tvb, offset, tvb_strsize(tvb, offset), ENC_ASCII);
+	fmtstr_offset = offset;
 	offset += tvb_strsize(tvb, offset);
+	sanitize_fmtstr(fmtstr);
 
 	proto_tree_add_item_ret_string(diag_msg_tree, hf_qcdiag_msg_file_name, tvb, offset, -1, ENC_ASCII, wmem_packet_scope(), &file_name);
 	offset += tvb_strsize(tvb, offset);
@@ -91,64 +120,70 @@ dissect_qcdiag_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * d
 	col_append_fstr(pinfo->cinfo, COL_INFO, "%s:%u ", file_name, line_nr);
 	switch (num_args) {
 	case 0:
-		col_append_str(pinfo->cinfo, COL_INFO, fmtstr);
+		str = wmem_strdup_printf(wmem_packet_scope(), "%s", fmtstr);
 		break;
 	case 1:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0]);
 		break;
 	case 2:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1]);
 		break;
 	case 3:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2]);
 		break;
 	case 4:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3]);
 		break;
 	case 5:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4]);
 		break;
 	case 6:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5]);
 		break;
 	case 7:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
 		break;
 	case 8:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
 		break;
 	case 9:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8]);
 		break;
 	case 10:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9]);
 		break;
 	case 11:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9], args[10]);
 		break;
 	case 12:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9], args[10], args[11]);
 		break;
 	case 13:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9], args[10], args[11], args[12]);
 		break;
 	case 14:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9], args[10], args[11], args[12], args[13]);
 		break;
 	case 15:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9], args[10], args[11], args[12], args[13], args[14]);
 		break;
 	case 16:
-		col_append_fstr(pinfo->cinfo, COL_INFO, fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+		str = wmem_strdup_printf(wmem_packet_scope(), fmtstr, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
 				args[8], args[9], args[10], args[11], args[12], args[13], args[14], args[15]);
 		break;
+	}
+
+	if (str) {
+		col_append_str((pinfo)->cinfo, COL_INFO, str);
+		gi = proto_tree_add_string(diag_msg_tree, hf_qcdiag_msg_formatted_str, tvb, fmtstr_offset, strlen(fmtstr), str);
+		PROTO_ITEM_SET_GENERATED(gi);
 	}
 
 	return tvb_captured_length(tvb);
@@ -171,6 +206,8 @@ proto_register_qcdiag_msg(void)
 		{ &hf_qcdiag_msg_subsys_mask, { "Subsystem Mask", "qcdiag_msg.subsys_mask",
 		  FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL } },
 		{ &hf_qcdiag_msg_fmt_str, { "Format String", "qcdiag_msg.fmt_str",
+		  FT_STRINGZ, BASE_NONE, NULL, 0, NULL, HFILL } },
+		{ &hf_qcdiag_msg_formatted_str, { "Formatted String", "qcdiag_msg.formatted_str",
 		  FT_STRINGZ, BASE_NONE, NULL, 0, NULL, HFILL } },
 		{ &hf_qcdiag_msg_file_name, { "File Name", "qcdiag_msg.fmt_str",
 		  FT_STRINGZ, BASE_NONE, NULL, 0, NULL, HFILL } },
