@@ -235,6 +235,7 @@ dissect_qcdiag_log_rr(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tre
 		break;
 	default:
 		sub_handle = SUB_DATA;
+		break;
 	}
 
 	if (sub_handles[sub_handle])
@@ -267,6 +268,7 @@ dissect_qcdiag_log_gmac(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_t
 	case PRACH_8BIT_CHANNEL:
 	case UL_PACCH_CHANNEL:
 		sub_handle = SUB_UM_RLC_MAC_UL;
+		break;
 	case PCCCH_CHANNEL:
 	case PBCCH_CHANNEL:
 	case DL_PACCH_CHANNEL:
