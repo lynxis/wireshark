@@ -865,42 +865,43 @@ dissect_gsmtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 			       pinfo, tree);
 		break;
 	case GSMTAP_SUB_UM_RLC_MAC_UL:
-	case GSMTAP_SUB_UM_RLC_MAC_DL:
-		gsize num_calls;
-		gsize data_block_bits, data_block_offsets[2];
-		RlcMacPrivateData_t rlc_mac;
-		tvbuff_t *data_tvb;
+	case GSMTAP_SUB_UM_RLC_MAC_DL: {
+			gsize num_calls;
+			gsize data_block_bits, data_block_offsets[2];
+			RlcMacPrivateData_t rlc_mac;
+			tvbuff_t *data_tvb;
 
-		setup_rlc_mac_priv(&rlc_mac,
-			tvb_reported_length(payload_tvb),
-			sub_handle == GSMTAP_SUB_UM_RLC_MAC_UL,
-			&num_calls, &data_block_bits, data_block_offsets);
+			setup_rlc_mac_priv(&rlc_mac,
+				tvb_reported_length(payload_tvb),
+				sub_handle == GSMTAP_SUB_UM_RLC_MAC_UL,
+				&num_calls, &data_block_bits, data_block_offsets);
 
-		if (sub_handles[sub_handle] == NULL)
-			return tvb_captured_length(tvb);
+			if (sub_handles[sub_handle] == NULL)
+				return tvb_captured_length(tvb);
 
-		call_dissector_with_data(sub_handles[sub_handle], payload_tvb,
-			pinfo, tree, &rlc_mac);
-
-		/* We need a sub payload tvb which starts
-		 * with 6 0 bits, followed by the data block
-		 * bits. The offset depends on the header type,
-		 * the size depends on the MCS */
-		if (num_calls > 1) {
-			data_tvb = get_egprs_data_block(payload_tvb,
-				data_block_offsets[0], data_block_bits, pinfo);
-			rlc_mac.flags = GSM_RLC_MAC_EGPRS_BLOCK1;
-			call_dissector_with_data(sub_handles[sub_handle], data_tvb,
+			call_dissector_with_data(sub_handles[sub_handle], payload_tvb,
 				pinfo, tree, &rlc_mac);
+
+			/* We need a sub payload tvb which starts
+			* with 6 0 bits, followed by the data block
+			* bits. The offset depends on the header type,
+			* the size depends on the MCS */
+			if (num_calls > 1) {
+				data_tvb = get_egprs_data_block(payload_tvb,
+					data_block_offsets[0], data_block_bits, pinfo);
+				rlc_mac.flags = GSM_RLC_MAC_EGPRS_BLOCK1;
+				call_dissector_with_data(sub_handles[sub_handle], data_tvb,
+					pinfo, tree, &rlc_mac);
+			}
+			if (num_calls > 2) {
+				data_tvb = get_egprs_data_block(payload_tvb,
+					data_block_offsets[1], data_block_bits, pinfo);
+				rlc_mac.flags = GSM_RLC_MAC_EGPRS_BLOCK2;
+				call_dissector_with_data(sub_handles[sub_handle], data_tvb,
+					pinfo, tree, &rlc_mac);
+			}
+			break;
 		}
-		if (num_calls > 2) {
-			data_tvb = get_egprs_data_block(payload_tvb,
-				data_block_offsets[1], data_block_bits, pinfo);
-			rlc_mac.flags = GSM_RLC_MAC_EGPRS_BLOCK2;
-			call_dissector_with_data(sub_handles[sub_handle], data_tvb,
-				pinfo, tree, &rlc_mac);
-		}
-		break;
 	default:
 		if (sub_handles[sub_handle] != NULL)
 			call_dissector(sub_handles[sub_handle], payload_tvb, pinfo, tree);
