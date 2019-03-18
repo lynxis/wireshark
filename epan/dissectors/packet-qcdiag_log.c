@@ -319,8 +319,8 @@ dissect_qcdiag_log_uim(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tr
 	/* Data: Raw UIM Message */
 	payload_tvb = tvb_new_subset_length(tvb, offset, uim_length);
 
-	if (sub_handles[SIM])
-		call_dissector(sub_handles[SIM], payload_tvb, pinfo, tree);
+	if (sub_handles[SUB_SIM])
+		call_dissector(sub_handles[SUB_SIM], payload_tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);
 }
@@ -457,7 +457,7 @@ proto_reg_handoff_qcdiag_log(void)
 	sub_handles[SUB_RRC_BCCH_BCH] = find_dissector_add_dependency("rrc.bcch.bch", proto_qcdiag_log);
 	sub_handles[SUB_RRC_BCCH_FACH] = find_dissector_add_dependency("rrc.bcch.fach", proto_qcdiag_log);
 	sub_handles[SUB_RRC_PCCH] = find_dissector_add_dependency("rrc.pcch", proto_qcdiag_log);
-	sub_handles[SIM] = find_dissector_add_dependency("gsm_sim", proto_qcdiag_log);
+	sub_handles[SUB_SIM] = find_dissector_add_dependency("gsm_sim", proto_qcdiag_log);
 }
 
 /*
