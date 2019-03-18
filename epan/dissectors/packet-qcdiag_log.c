@@ -307,6 +307,24 @@ dissect_qcdiag_log_nas(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tr
 	return tvb_captured_length(tvb);
 }
 
+static int
+dissect_qcdiag_log_uim(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tree *log_tree, proto_tree *tree)
+{
+	tvbuff_t *payload_tvb;
+	guint uim_length;
+
+	/* Byte 1 */
+	proto_tree_add_item_ret_uint(log_tree, hf_msg_length, tvb, offset++, 1, ENC_NA, &uim_length);
+
+	/* Data: Raw UIM Message */
+	payload_tvb = tvb_new_subset_length(tvb, offset, uim_length);
+
+	if (sub_handles[SIM])
+		call_dissector(sub_handles[SIM], payload_tvb, pinfo, tree);
+
+	return tvb_captured_length(tvb);
+}
+
 
 static int
 dissect_qcdiag_log(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
@@ -335,6 +353,8 @@ dissect_qcdiag_log(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * d
 	offset += 8;
 
 	switch (code) {
+	case 0x1098:	/* UIM Application Protocol Data Unit */
+		return dissect_qcdiag_log_uim(tvb, offset, pinfo, diag_log_tree, tree);
 	case 0x512f:	/* GSM RR signaling message */
 		return dissect_qcdiag_log_rr(tvb, offset, pinfo, diag_log_tree, tree);
 	case 0x412f:	/* 3G RRC */
@@ -437,6 +457,7 @@ proto_reg_handoff_qcdiag_log(void)
 	sub_handles[SUB_RRC_BCCH_BCH] = find_dissector_add_dependency("rrc.bcch.bch", proto_qcdiag_log);
 	sub_handles[SUB_RRC_BCCH_FACH] = find_dissector_add_dependency("rrc.bcch.fach", proto_qcdiag_log);
 	sub_handles[SUB_RRC_PCCH] = find_dissector_add_dependency("rrc.pcch", proto_qcdiag_log);
+	sub_handles[SIM] = find_dissector_add_dependency("gsm_sim", proto_qcdiag_log);
 }
 
 /*
